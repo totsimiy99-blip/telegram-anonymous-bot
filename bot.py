@@ -518,7 +518,7 @@ def match_user(uid):
             connect_users(uid, other_uid)
             return
 
-def def connect_users(uid1, uid2):
+def connect_users(uid1, uid2):
     age_range = users[uid1].age_range
     if uid1 in waiting[age_range]:
         waiting[age_range].remove(uid1)
@@ -672,7 +672,7 @@ def stats(m):
             f"📊 *Статистика:*\n\n"
             f"👥 Всего пользователей: {db_stats['total']}\n"
             f"💬 Сейчас в чате: {in_chat}\n"
-            f"🔍 В поиске: {in_queue}\n"
+	          f"🔍 В поиске: {in_queue}\n"
             f"💎 Премиум: {db_stats['premium']}\n"
             f"📈 Всего диалогов: {db_stats['total_chats']}\n\n"
             f"🗄️ Данные из БД ✅",
@@ -745,16 +745,16 @@ def handle_text(m):
     elif m.text == "📊 Статистика":
         stats(m)
         return
-    
-    # Пересылка в чате
-    if uid in users and users[uid].partner:
-        partner = users[uid].partner
-        try:
-            bot.send_message(partner, m.text)
-        except:
-            bot.send_message(uid, "❌ Ошибка отправки")
-    else:
-        bot.send_message(uid, 
+    if db_stats:
+        bot.send_message(m.chat.id,
+            f"📊 *Статистика:*\n\n"
+            f"👥 Всего пользователей: {db_stats['total']}\n"
+            f"💬 Сейчас в чате: {in_chat}\n"
+            f"🔍 В поиске: {in_queue}\n"
+            f"💎 Премиум: {db_stats['premium']}\n"
+            f"📈 Всего диалогов: {db_stats['total_chats']}\n\n"
+            f"🗄️ Данные из БД ✅",
+            parse_mode='Markdown')
             "💡 Используйте меню или команды:\n"
             "/find - найти собеседника\n"
             "/profile - профиль\n"
@@ -822,8 +822,10 @@ if __name__ == '__main__':
     print("🏓 Автопинг HTTP + Telegram запущен!")
     
     if db_session:
+        print("💎 Премиум: Telegram Stars")
         print("🗄️ База данных: ✅ Подключена")
     else:
+        print("💎 Премиум: Telegram Stars")
         print("🗄️ База данных: ⚠️ Отключена")
     
     print("🤖 Запуск Telegram polling...")
@@ -837,10 +839,15 @@ if __name__ == '__main__':
             none_stop=True
         )
     except KeyboardInterrupt:
-        print("❌ Остановлено")
+        print("\n❌ Остановлено пользователем")
     except Exception as e:
-        print(f"❌ Ошибка: {e}")
+        print(f"❌ Критическая ошибка: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         if db_session:
-            db_session.close()
-            print("🗄️ Соединение с БД закрыто")
+            try:
+                db_session.close()
+                print("🗄️ Соединение с БД закрыто")
+            except:
+                pass
