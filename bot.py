@@ -1,5 +1,6 @@
 import telebot
 import os
+import requests
 from flask import Flask
 from threading import Thread
 import time
@@ -21,7 +22,12 @@ def home():
 
 @app.route('/health')
 def health():
-    return "OK", 200
+    try:
+        bot_info = bot.get_me()
+        db_status = "✅" if db_session else "❌"
+        return f"✅ @{bot_info.username} | DB: {db_status}", 200
+    except Exception as e:
+        return f"⚠️ Error: {e}", 503
 
 def run_flask():
     port = int(os.environ.get('PORT', 8000))
@@ -32,6 +38,44 @@ def keep_alive():
     t = Thread(target=run_flask)
     t.daemon = True
     t.start()
+
+def auto_ping():
+    """Автопинг Flask каждые 5 минут"""
+    SERVICE_URL = os.environ.get('SERVICE_URL', '')
+    
+    while True:
+        try:
+            time.sleep(300)  # 5 минут
+            if SERVICE_URL:
+                requests.get(SERVICE_URL + '/health', timeout=10)
+                print("🏓 HTTP пинг выполнен")
+        except Exception as e:
+            print(f"⚠️ Ошибка HTTP пинга: {e}")
+
+def keep_bot_active():
+    """Отправка пинга себе каждые 5 минут"""
+    ADMIN_ID = 5426463183
+    
+    while True:
+        try:
+            time.sleep(300)  # 5 минут
+            try:
+                bot.send_message(ADMIN_ID, "🏓", disable_notification=True)
+                print("🏓 Telegram пинг отправлен")
+            except Exception as e:
+                print(f"⚠️ Ошибка Telegram пинга: {e}")
+        except:
+            pass
+
+def start_auto_services():
+    """Запуск всех фоновых сервисов"""
+    t1 = Thread(target=auto_ping)
+    t1.daemon = True
+    t1.start()
+    
+    t2 = Thread(target=keep_bot_active)
+    t2.daemon = True
+    t2.start()
 
 # Токен бота
 TOKEN = os.environ.get('BOT_TOKEN')
@@ -152,10 +196,10 @@ def get_db_stats():
         return None
     
     try:
+        from sqlalchemy import func
         total = db_session.query(UserDB).count()
         premium = db_session.query(UserDB).filter_by(premium=True).count()
-        total_chats = db_session.query(UserDB).with_entities(
-            sqlalchemy.func.sum(UserDB.chats_count)).scalar() or 0
+        total_chats = db_session.query(func.sum(UserDB.chats_count)).scalar() or 0
         
         return {
             'total': total,
@@ -474,7 +518,7 @@ def match_user(uid):
             connect_users(uid, other_uid)
             return
 
-def connect_users(uid1, uid2):
+def def connect_users(uid1, uid2):
     age_range = users[uid1].age_range
     if uid1 in waiting[age_range]:
         waiting[age_range].remove(uid1)
@@ -648,13 +692,13 @@ def stats(m):
             parse_mode='Markdown')
 
 # Команда для админа - выдать себе премиум
-ADMIN_ID = 0  # ЗАМЕНИТЕ НА ВАШ TELEGRAM ID
+ADMIN_ID = 5426463183  # ВАШ TELEGRAM ID
 
 @bot.message_handler(commands=['givepremium'])
 def give_premium(m):
     uid = m.chat.id
     
-    if uid == ADMIN_ID or ADMIN_ID == 0:
+    if uid == ADMIN_ID:
         if uid in users:
             users[uid].premium = True
             save_user_to_db(users[uid])
@@ -774,9 +818,8 @@ if __name__ == '__main__':
     print("=" * 60)
     print("🌐 Запуск Flask...")
     keep_alive()
-    
-    print("✅ Flask запущен!")
-    print("💎 Премиум: Telegram Stars")
+    start_auto_services()
+    print("🏓 Автопинг HTTP + Telegram запущен!")
     
     if db_session:
         print("🗄️ База данных: ✅ Подключена")
