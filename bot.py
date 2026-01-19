@@ -8,41 +8,6 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 
-# Подключение к БД
-DATABASE_URL = os.environ.get('DATABASE_URL')
-
-if DATABASE_URL:
-    print("✅ DATABASE_URL получена!")
-    engine = create_engine(DATABASE_URL)
-    Base = declarative_base()
-    
-    # Модель таблицы users
-    class UserDB(Base):
-        __tablename__ = 'users'
-        
-        id = Column(BigInteger, primary_key=True)
-        country = Column(String(100))
-        city = Column(String(100))
-        gender = Column(String(20))
-        age_range = Column(String(20))
-        search_gender = Column(String(50))
-        premium = Column(Boolean, default=False)
-        chats_count = Column(Integer, default=0)
-        created_at = Column(DateTime, default=datetime.now)
-        updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
-    
-    # Создание таблиц
-    Base.metadata.create_all(engine)
-    
-    # Сессия
-    Session = sessionmaker(bind=engine)
-    db_session = Session()
-    
-    print("✅ База данных подключена!")
-    print("🗄️ Таблица users создана/проверена")
-else:
-    print("⚠️ DATABASE_URL не найдена, работаем без БД")
-    db_session = None
 print("=" * 60)
 print("🤖 Анонимный чат-бот запускается...")
 print("=" * 60)
@@ -77,15 +42,129 @@ if not TOKEN:
 
 print(f"✅ Токен получен: {TOKEN[:15]}...")
 
+# Подключение к БД
+DATABASE_URL = os.environ.get('DATABASE_URL')
+
+if DATABASE_URL:
+    print(f"✅ DATABASE_URL получена: {DATABASE_URL[:50]}...")
+    try:
+        engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+        Base = declarative_base()
+        
+        # Модель таблицы users
+        class UserDB(Base):
+            __tablename__ = 'users'
+            
+            id = Column(BigInteger, primary_key=True)
+            country = Column(String(100))
+            city = Column(String(100))
+            gender = Column(String(20))
+            age_range = Column(String(20))
+            search_gender = Column(String(50))
+            premium = Column(Boolean, default=False)
+            chats_count = Column(Integer, default=0)
+            created_at = Column(DateTime, default=datetime.now)
+            updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+        
+        # Создание таблиц
+        Base.metadata.create_all(engine)
+        
+        # Сессия
+        SessionLocal = sessionmaker(bind=engine)
+        db_session = SessionLocal()
+        
+        print("✅ База данных подключена!")
+        print("🗄️ Таблица users создана/проверена")
+    except Exception as e:
+        print(f"❌ Ошибка подключения к БД: {e}")
+        db_session = None
+else:
+    print("⚠️ DATABASE_URL не найдена, работаем без БД")
+    db_session = None
+
 bot = telebot.TeleBot(TOKEN)
 
-# База данных (в памяти)
+# База данных (в памяти для текущей сессии)
 users = {}
 waiting = {
     '14-16': [],
     '16-18': [],
     '18-30': []
 }
+
+# Функции работы с БД
+def save_user_to_db(user):
+    """Сохранить пользователя в БД"""
+    if not db_session:
+        return
+    
+    try:
+        db_user = db_session.query(UserDB).filter_by(id=user.id).first()
+        
+        if db_user:
+            # Обновление
+            db_user.country = user.country
+            db_user.city = user.city
+            db_user.gender = user.gender
+            db_user.age_range = user.age_range
+            db_user.search_gender = user.search_gender
+            db_user.premium = user.premium
+            db_user.chats_count = user.chats_count
+            db_user.updated_at = datetime.now()
+        else:
+            # Создание
+            db_user = UserDB(
+                id=user.id,
+                country=user.country,
+                city=user.city,
+                gender=user.gender,
+                age_range=user.age_range,
+                search_gender=user.search_gender,
+                premium=user.premium,
+                chats_count=user.chats_count
+            )
+            db_session.add(db_user)
+        
+        db_session.commit()
+        print(f"💾 Пользователь {user.id} сохранён в БД")
+    except Exception as e:
+        print(f"❌ Ошибка сохранения в БД: {e}")
+        db_session.rollback()
+
+def load_user_from_db(uid):
+    """Загрузить пользователя из БД"""
+    if not db_session:
+        return None
+    
+    try:
+        db_user = db_session.query(UserDB).filter_by(id=uid).first()
+        if db_user:
+            print(f"📂 Пользователь {uid} загружен из БД")
+            return db_user
+        return None
+    except Exception as e:
+        print(f"❌ Ошибка загрузки из БД: {e}")
+        return None
+
+def get_db_stats():
+    """Получить статистику из БД"""
+    if not db_session:
+        return None
+    
+    try:
+        total = db_session.query(UserDB).count()
+        premium = db_session.query(UserDB).filter_by(premium=True).count()
+        total_chats = db_session.query(UserDB).with_entities(
+            sqlalchemy.func.sum(UserDB.chats_count)).scalar() or 0
+        
+        return {
+            'total': total,
+            'premium': premium,
+            'total_chats': total_chats // 2
+        }
+    except Exception as e:
+        print(f"❌ Ошибка получения статистики: {e}")
+        return None
 
 # Цена премиума
 PREMIUM_PRICE_STARS = 50
@@ -103,6 +182,18 @@ class User:
         self.premium = False
         self.in_queue = False
         self.chats_count = 0
+        
+        # Попытка загрузить из БД
+        db_user = load_user_from_db(uid)
+        if db_user:
+            self.country = db_user.country
+            self.city = db_user.city
+            self.gender = db_user.gender
+            self.age_range = db_user.age_range
+            self.search_gender = db_user.search_gender
+            self.premium = db_user.premium
+            self.chats_count = db_user.chats_count
+            self.ready = True if self.country else False
 
 # Правила
 RULES = """
@@ -177,13 +268,15 @@ def start(m):
     
     if uid not in users:
         users[uid] = User(uid)
-        show_rules(m)
-    else:
+    
+    if users[uid].ready:
         bot.send_message(uid, 
             "👋 *С возвращением!*\n\n"
             "Используйте меню 👇",
             parse_mode='Markdown',
             reply_markup=get_main_keyboard())
+    else:
+        show_rules(m)
 
 def show_rules(m):
     uid = m.chat.id
@@ -256,14 +349,18 @@ def get_search_preference(m):
     uid = m.chat.id
     users[uid].search_gender = clean_emoji(m.text)
     users[uid].ready = True
-    u = users[uid]
     
+    # Сохранить в БД
+    save_user_to_db(users[uid])
+    
+    u = users[uid]
     bot.send_message(uid,
         f"✅ *Профиль создан!*\n\n"
         f"🌍 {u.country}, {u.city}\n"
         f"⚤ {u.gender}\n"
         f"🎂 {u.age_range} лет\n"
         f"💝 Ищу: {u.search_gender}\n\n"
+        f"{'💾 Сохранено в БД ✅' if db_session else ''}\n"
         f"Теперь можно искать! 🔍",
         parse_mode='Markdown', reply_markup=get_main_keyboard())
 
@@ -391,6 +488,10 @@ def connect_users(uid1, uid2):
     users[uid1].chats_count += 1
     users[uid2].chats_count += 1
     
+    # Сохранить в БД
+    save_user_to_db(users[uid1])
+    save_user_to_db(users[uid2])
+    
     u1 = users[uid1]
     u2 = users[uid2]
     
@@ -448,7 +549,10 @@ def premium_cmd(m):
 def show_premium(m):
     uid = m.chat.id
     
-    if uid in users and users[uid].premium:
+    if uid not in users:
+        users[uid] = User(uid)
+    
+    if users[uid].premium:
         bot.send_message(uid,
             "💎 *У вас Премиум!*\n\n"
             "✅ Фото\n✅ Приоритет\n✅ Расширенный профиль",
@@ -496,30 +600,84 @@ def successful_payment(message):
     uid = message.chat.id
     if uid in users:
         users[uid].premium = True
+        
+        # Сохранить в БД
+        save_user_to_db(users[uid])
+        
         bot.send_message(uid,
             "🎉 *Премиум активирован!*\n\n"
             "✅ Теперь можете:\n"
             "📸 Отправлять фото\n"
             "🚀 Приоритет в поиске\n\n"
+            f"{'💾 Сохранено в БД ✅' if db_session else ''}\n"
             "Спасибо! ❤️",
             parse_mode='Markdown', reply_markup=get_main_keyboard())
 
 # Статистика
 @bot.message_handler(commands=['stats'])
 def stats(m):
-    total_users = len(users)
+    # Статистика из памяти
     in_chat = sum(1 for u in users.values() if u.partner)
     in_queue = sum(1 for u in users.values() if u.in_queue)
-    premium_users = sum(1 for u in users.values() if u.premium)
-    total_chats = sum(u.chats_count for u in users.values()) // 2
     
+    # Статистика из БД
+    db_stats = get_db_stats()
+    
+    if db_stats:
+        bot.send_message(m.chat.id,
+            f"📊 *Статистика:*\n\n"
+            f"👥 Всего пользователей: {db_stats['total']}\n"
+            f"💬 Сейчас в чате: {in_chat}\n"
+            f"🔍 В поиске: {in_queue}\n"
+            f"💎 Премиум: {db_stats['premium']}\n"
+            f"📈 Всего диалогов: {db_stats['total_chats']}\n\n"
+            f"🗄️ Данные из БД ✅",
+            parse_mode='Markdown')
+    else:
+        total_users = len(users)
+        premium_users = sum(1 for u in users.values() if u.premium)
+        total_chats = sum(u.chats_count for u in users.values()) // 2
+        
+        bot.send_message(m.chat.id,
+            f"📊 *Статистика:*\n\n"
+            f"👥 Пользователей: {total_users}\n"
+            f"💬 В чате: {in_chat}\n"
+            f"🔍 В поиске: {in_queue}\n"
+            f"💎 Премиум: {premium_users}\n"
+            f"📈 Всего диалогов: {total_chats}",
+            parse_mode='Markdown')
+
+# Команда для админа - выдать себе премиум
+ADMIN_ID = 0  # ЗАМЕНИТЕ НА ВАШ TELEGRAM ID
+
+@bot.message_handler(commands=['givepremium'])
+def give_premium(m):
+    uid = m.chat.id
+    
+    if uid == ADMIN_ID or ADMIN_ID == 0:
+        if uid in users:
+            users[uid].premium = True
+            save_user_to_db(users[uid])
+            
+            bot.send_message(uid,
+                "✅ *Премиум активирован бесплатно!*\n\n"
+                "💎 Теперь доступно:\n"
+                "📸 Отправка фото\n"
+                "🚀 Приоритет в поиске\n\n"
+                f"{'💾 Сохранено в БД ✅' if db_session else ''}",
+                parse_mode='Markdown',
+                reply_markup=get_main_keyboard())
+        else:
+            bot.send_message(uid, "❌ Сначала создайте профиль: /start")
+    else:
+        bot.send_message(uid, "⛔ Команда только для админа")
+
+# Команда для получения своего ID
+@bot.message_handler(commands=['myid'])
+def my_id(m):
     bot.send_message(m.chat.id,
-        f"📊 *Статистика:*\n\n"
-        f"👥 Пользователей: {total_users}\n"
-        f"💬 В чате: {in_chat}\n"
-        f"🔍 В поиске: {in_queue}\n"
-        f"💎 Премиум: {premium_users}\n"
-        f"📈 Всего диалогов: {total_chats}",
+        f"🆔 *Ваш Telegram ID:*\n\n`{m.chat.id}`\n\n"
+        f"_Скопируйте это число для настройки админа_",
         parse_mode='Markdown')
 
 # Пересылка сообщений
@@ -556,7 +714,8 @@ def handle_text(m):
             "💡 Используйте меню или команды:\n"
             "/find - найти собеседника\n"
             "/profile - профиль\n"
-            "/premium - премиум",
+            "/premium - премиум\n"
+            "/myid - узнать свой ID",
             reply_markup=get_main_keyboard())
 
 # Пересылка фото
@@ -618,6 +777,12 @@ if __name__ == '__main__':
     
     print("✅ Flask запущен!")
     print("💎 Премиум: Telegram Stars")
+    
+    if db_session:
+        print("🗄️ База данных: ✅ Подключена")
+    else:
+        print("🗄️ База данных: ⚠️ Отключена")
+    
     print("🤖 Запуск Telegram polling...")
     print("=" * 60)
     
@@ -632,3 +797,7 @@ if __name__ == '__main__':
         print("❌ Остановлено")
     except Exception as e:
         print(f"❌ Ошибка: {e}")
+    finally:
+        if db_session:
+            db_session.close()
+            print("🗄️ Соединение с БД закрыто")
