@@ -745,23 +745,22 @@ def handle_text(m):
     elif m.text == "📊 Статистика":
         stats(m)
         return
-    if db_stats:
-        bot.send_message(m.chat.id,
-            f"📊 *Статистика:*\n\n"
-            f"👥 Всего пользователей: {db_stats['total']}\n"
-            f"💬 Сейчас в чате: {in_chat}\n"
-            f"🔍 В поиске: {in_queue}\n"
-            f"💎 Премиум: {db_stats['premium']}\n"
-            f"📈 Всего диалогов: {db_stats['total_chats']}\n\n"
-            f"🗄️ Данные из БД ✅",
-            parse_mode='Markdown')
+    
+    # Пересылка в чате
+    if uid in users and users[uid].partner:
+        partner = users[uid].partner
+        try:
+            bot.send_message(partner, m.text)
+        except:
+            bot.send_message(uid, "❌ Ошибка отправки")
+    else:
+        bot.send_message(uid, 
             "💡 Используйте меню или команды:\n"
             "/find - найти собеседника\n"
             "/profile - профиль\n"
             "/premium - премиум\n"
             "/myid - узнать свой ID",
             reply_markup=get_main_keyboard())
-
 # Пересылка фото
 @bot.message_handler(content_types=['photo'])
 def handle_photo(m):
