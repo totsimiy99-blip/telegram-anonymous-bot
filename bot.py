@@ -3,7 +3,46 @@ import os
 from flask import Flask
 from threading import Thread
 import time
+from sqlalchemy import create_engine, Column, BigInteger, String, Boolean, Integer, DateTime
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from datetime import datetime
 
+# Подключение к БД
+DATABASE_URL = os.environ.get('DATABASE_URL')
+
+if DATABASE_URL:
+    print("✅ DATABASE_URL получена!")
+    engine = create_engine(DATABASE_URL)
+    Base = declarative_base()
+    
+    # Модель таблицы users
+    class UserDB(Base):
+        __tablename__ = 'users'
+        
+        id = Column(BigInteger, primary_key=True)
+        country = Column(String(100))
+        city = Column(String(100))
+        gender = Column(String(20))
+        age_range = Column(String(20))
+        search_gender = Column(String(50))
+        premium = Column(Boolean, default=False)
+        chats_count = Column(Integer, default=0)
+        created_at = Column(DateTime, default=datetime.now)
+        updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    
+    # Создание таблиц
+    Base.metadata.create_all(engine)
+    
+    # Сессия
+    Session = sessionmaker(bind=engine)
+    db_session = Session()
+    
+    print("✅ База данных подключена!")
+    print("🗄️ Таблица users создана/проверена")
+else:
+    print("⚠️ DATABASE_URL не найдена, работаем без БД")
+    db_session = None
 print("=" * 60)
 print("🤖 Анонимный чат-бот запускается...")
 print("=" * 60)
