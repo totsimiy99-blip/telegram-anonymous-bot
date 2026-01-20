@@ -4,7 +4,7 @@ import requests
 from flask import Flask
 from threading import Thread
 import time
-from sqlalchemy import create_engine, Column, BigInteger, String, Boolean, Integer, DateTime
+from sqlalchemy import create_engine, Column, BigInteger, String, Boolean, Integer, DateTime, func
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from datetime import datetime
@@ -196,7 +196,6 @@ def get_db_stats():
         return None
     
     try:
-        from sqlalchemy import func
         total = db_session.query(UserDB).count()
         premium = db_session.query(UserDB).filter_by(premium=True).count()
         total_chats = db_session.query(func.sum(UserDB.chats_count)).scalar() or 0
@@ -531,8 +530,7 @@ def connect_users(uid1, uid2):
     users[uid2].in_queue = False
     users[uid1].chats_count += 1
     users[uid2].chats_count += 1
-    
-    # Сохранить в БД
+	    # Сохранить в БД
     save_user_to_db(users[uid1])
     save_user_to_db(users[uid2])
     
@@ -672,7 +670,7 @@ def stats(m):
             f"📊 *Статистика:*\n\n"
             f"👥 Всего пользователей: {db_stats['total']}\n"
             f"💬 Сейчас в чате: {in_chat}\n"
-	          f"🔍 В поиске: {in_queue}\n"
+            f"🔍 В поиске: {in_queue}\n"
             f"💎 Премиум: {db_stats['premium']}\n"
             f"📈 Всего диалогов: {db_stats['total_chats']}\n\n"
             f"🗄️ Данные из БД ✅",
@@ -692,7 +690,7 @@ def stats(m):
             parse_mode='Markdown')
 
 # Команда для админа - выдать себе премиум
-ADMIN_ID = 5426463183  # ВАШ TELEGRAM ID
+ADMIN_ID = 5426463183
 
 @bot.message_handler(commands=['givepremium'])
 def give_premium(m):
@@ -761,6 +759,7 @@ def handle_text(m):
             "/premium - премиум\n"
             "/myid - узнать свой ID",
             reply_markup=get_main_keyboard())
+
 # Пересылка фото
 @bot.message_handler(content_types=['photo'])
 def handle_photo(m):
